@@ -1,0 +1,4 @@
+# Pre-fetched Elexon data snapshots are committed here.
+# actuals.csv.gz   – FUELHH WIND generation, 30-min resolution
+# forecasts.csv.gz – WINDFOR wind forecast, 1-hour resolution
+# Run scripts/fetch_data.py to regenerate.

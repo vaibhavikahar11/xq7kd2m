@@ -1,0 +1,36 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Node / Vite ───────────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+# Compressed CSVs ARE committed (they are the pre-fetched Elexon snapshot).
+# Only transient temp files are ignored.
+data/*.tmp
+
+# ── Environment – NEVER commit secrets ────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Vercel ────────────────────────────────────────────────────────────────────
+.vercel/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp

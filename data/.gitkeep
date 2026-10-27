@@ -1,0 +1,3 @@
+# Data snapshots committed to the repo.
+# Only temporary/intermediate files are gitignored.
+data/*.tmp
