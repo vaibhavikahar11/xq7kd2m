@@ -1,0 +1,383 @@
+"""
+Tests for backend/app/metrics.py.
+
+All test cases use small, hand-calculated synthetic datasets so the expected
+values can be verified by inspection.
+"""
+
+from __future__ import annotations
+
+import math
+from datetime import date, timezone
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from app.metrics import (
+    BUCKET_LABELS,
+    MetricSet,
+    decision_time_accuracy,
+    decision_time_by_date,
+    decision_time_by_hour,
+    horizon_accuracy,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_JAN_START = date(2026, 1, 1)
+_JAN_END = date(2026, 1, 31)
+
+
+def _ts(dt_str: str) -> pd.Timestamp:
+    """Parse an ISO-8601 string to a UTC-aware Timestamp."""
+    return pd.Timestamp(dt_str, tz="UTC")
+
+
+def _make_selection(rows: list[dict]) -> pd.DataFrame:
+    """Build a minimal selection DataFrame from a list of row dicts."""
+    df = pd.DataFrame(rows)
+    df["startTime"] = pd.to_datetime(df["startTime"], utc=True)
+    if "publishTime" not in df.columns:
+        df["publishTime"] = pd.NaT
+    else:
+        df["publishTime"] = pd.to_datetime(df["publishTime"], utc=True)
+    if "missing_forecast" not in df.columns:
+        df["missing_forecast"] = False
+    if "horizon_hours" not in df.columns:
+        df["horizon_hours"] = float("nan")
+    return df
+
+
+def _make_actuals(rows: list[dict]) -> pd.DataFrame:
+    """Build a minimal actuals DataFrame from a list of row dicts."""
+    df = pd.DataFrame(rows)
+    df["startTime"] = pd.to_datetime(df["startTime"], utc=True)
+    return df
+
+
+def _make_forecasts(rows: list[dict]) -> pd.DataFrame:
+    """Build a raw forecast DataFrame for horizon_accuracy tests."""
+    df = pd.DataFrame(rows)
+    df["startTime"] = pd.to_datetime(df["startTime"], utc=True)
+    df["publishTime"] = pd.to_datetime(df["publishTime"], utc=True)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# 1. Sign convention
+# ---------------------------------------------------------------------------
+
+class TestSignConvention:
+    """error = forecast - actual; positive means over-forecast."""
+
+    def test_over_forecast_is_positive(self):
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": 100.0},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 80.0},
+        ])
+        m = decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+        assert m.bias > 0, "bias should be positive when forecast > actual"
+        assert m.bias == pytest.approx(20.0)
+
+    def test_under_forecast_is_negative(self):
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": 60.0},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 80.0},
+        ])
+        m = decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+        assert m.bias < 0
+        assert m.bias == pytest.approx(-20.0)
+
+
+# ---------------------------------------------------------------------------
+# 2. MAE / RMSE / bias hand-calculation
+# ---------------------------------------------------------------------------
+
+class TestMaeRmseBias:
+    """errors = [+10, -10]: MAE=10, RMSE=10, bias=0."""
+
+    def _two_row_metrics(self) -> MetricSet:
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": 110.0},
+            {"startTime": "2026-01-15 00:30:00", "forecast_mw": 90.0},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 100.0},
+            {"startTime": "2026-01-15 00:30:00", "generation_mw": 100.0},
+        ])
+        return decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+
+    def test_mae(self):
+        m = self._two_row_metrics()
+        assert m.mae == pytest.approx(10.0)
+
+    def test_rmse(self):
+        m = self._two_row_metrics()
+        assert m.rmse == pytest.approx(10.0)
+
+    def test_bias_zero(self):
+        m = self._two_row_metrics()
+        assert m.bias == pytest.approx(0.0)
+
+    def test_n_matched(self):
+        m = self._two_row_metrics()
+        assert m.n_matched == 2
+
+    def test_n_excluded_zero(self):
+        m = self._two_row_metrics()
+        assert m.n_excluded == 0
+
+
+# ---------------------------------------------------------------------------
+# 3. Percentile values (hand-calculated)
+# ---------------------------------------------------------------------------
+
+class TestPercentiles:
+    """
+    errors = [0, 10, 20, 30, 40] → |e| p50=20, p90=36, p95=38.
+    numpy.percentile uses linear interpolation by default.
+    """
+
+    def _five_row_metrics(self) -> MetricSet:
+        slots = [
+            ("2026-01-15 00:00:00", 100.0, 100.0),   # error =  0
+            ("2026-01-15 00:30:00", 110.0, 100.0),   # error = +10
+            ("2026-01-15 01:00:00", 120.0, 100.0),   # error = +20
+            ("2026-01-15 01:30:00", 130.0, 100.0),   # error = +30
+            ("2026-01-15 02:00:00", 140.0, 100.0),   # error = +40
+        ]
+        sel = _make_selection([
+            {"startTime": s, "forecast_mw": f} for s, f, _ in slots
+        ])
+        act = _make_actuals([
+            {"startTime": s, "generation_mw": a} for s, _, a in slots
+        ])
+        return decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+
+    def test_abs_p50(self):
+        m = self._five_row_metrics()
+        assert m.abs_p50 == pytest.approx(20.0)
+
+    def test_abs_p90(self):
+        m = self._five_row_metrics()
+        # np.percentile([0,10,20,30,40], 90) = 36.0
+        assert m.abs_p90 == pytest.approx(36.0)
+
+    def test_abs_p95(self):
+        m = self._five_row_metrics()
+        # np.percentile([0,10,20,30,40], 95) = 38.0
+        assert m.abs_p95 == pytest.approx(38.0)
+
+    def test_signed_p5(self):
+        m = self._five_row_metrics()
+        # np.percentile([0,10,20,30,40], 5) = 2.0
+        assert m.signed_p5 == pytest.approx(2.0)
+
+    def test_signed_p50(self):
+        m = self._five_row_metrics()
+        assert m.signed_p50 == pytest.approx(20.0)
+
+    def test_signed_p95(self):
+        m = self._five_row_metrics()
+        # np.percentile([0,10,20,30,40], 95) = 38.0
+        assert m.signed_p95 == pytest.approx(38.0)
+
+
+# ---------------------------------------------------------------------------
+# 4. Exclusion of missing forecasts
+# ---------------------------------------------------------------------------
+
+class TestExclusion:
+    """3 slots, 1 with missing_forecast=True → n_matched=2, n_excluded=1."""
+
+    def _excluded_metrics(self) -> MetricSet:
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": 110.0, "missing_forecast": False},
+            {"startTime": "2026-01-15 00:30:00", "forecast_mw": 90.0,  "missing_forecast": False},
+            {"startTime": "2026-01-15 01:00:00", "forecast_mw": None,   "missing_forecast": True},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 100.0},
+            {"startTime": "2026-01-15 00:30:00", "generation_mw": 100.0},
+            {"startTime": "2026-01-15 01:00:00", "generation_mw": 100.0},
+        ])
+        return decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+
+    def test_n_matched(self):
+        assert self._excluded_metrics().n_matched == 2
+
+    def test_n_excluded(self):
+        assert self._excluded_metrics().n_excluded == 1
+
+    def test_metrics_only_from_valid_rows(self):
+        m = self._excluded_metrics()
+        assert m.mae == pytest.approx(10.0)
+        assert m.bias == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# 5. :00 / :30 pairing (one forecast row → two matched rows)
+# ---------------------------------------------------------------------------
+
+class TestHalfHourPairing:
+    """
+    selection_df has :00 and :30 rows (both with same forecast_mw=120).
+    actuals has matching :00 (actual=100) and :30 (actual=100).
+    Expected: n_matched=2, each contributing error=+20.
+    """
+
+    def test_both_rows_matched(self):
+        sel = _make_selection([
+            {"startTime": "2026-01-15 10:00:00", "forecast_mw": 120.0},
+            {"startTime": "2026-01-15 10:30:00", "forecast_mw": 120.0},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 10:00:00", "generation_mw": 100.0},
+            {"startTime": "2026-01-15 10:30:00", "generation_mw": 100.0},
+        ])
+        m = decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+        assert m.n_matched == 2
+        assert m.bias == pytest.approx(20.0)
+
+
+# ---------------------------------------------------------------------------
+# 6. Bucket boundary tests
+# ---------------------------------------------------------------------------
+
+class TestHorizonBuckets:
+    """Verify left-inclusive, right-exclusive bucket assignment."""
+
+    def _horizon_forecast(self, horizon_hours: float, ref_time: str = "2026-01-15 12:00:00") -> pd.DataFrame:
+        """Create a one-row forecast with the specified horizon."""
+        start = _ts(ref_time)
+        publish = start - pd.Timedelta(hours=horizon_hours, unit="ns")
+        return _make_forecasts([{
+            "startTime": ref_time,
+            "publishTime": str(publish),
+            "generation_mw": 100.0,
+        }])
+
+    def _single_actual(self, ref_time: str = "2026-01-15 12:00:00") -> pd.DataFrame:
+        return _make_actuals([
+            {"startTime": ref_time, "generation_mw": 90.0},
+            {"startTime": pd.Timestamp(ref_time, tz="UTC") + pd.Timedelta(minutes=30, unit="ns"), "generation_mw": 90.0},
+        ])
+
+    def _get_label(self, horizon_hours: float) -> str:
+        fc = self._horizon_forecast(horizon_hours)
+        act = self._single_actual()
+        result = horizon_accuracy(fc, act, date(2026, 1, 15), date(2026, 1, 15))
+        # Return the label with matched rows
+        for label, ms in result.items():
+            if ms.n_matched > 0:
+                return label
+        return "none"
+
+    def test_exactly_12h_is_12_24h(self):
+        assert self._get_label(12.0) == "12-24h"
+
+    def test_just_below_12h_is_6_12h(self):
+        assert self._get_label(11.99) == "6-12h"
+
+    def test_exactly_6h_is_6_12h(self):
+        assert self._get_label(6.0) == "6-12h"
+
+    def test_just_below_6h_is_0_6h(self):
+        assert self._get_label(5.99) == "0-6h"
+
+    def test_exactly_48h_is_48h_plus(self):
+        assert self._get_label(48.0) == "48h+"
+
+    def test_all_bucket_labels_present(self):
+        fc = self._horizon_forecast(12.0)
+        act = self._single_actual()
+        result = horizon_accuracy(fc, act, date(2026, 1, 15), date(2026, 1, 15))
+        assert set(result.keys()) == set(BUCKET_LABELS)
+
+
+# ---------------------------------------------------------------------------
+# 7. MAE as percentage of mean actual
+# ---------------------------------------------------------------------------
+
+class TestMaePct:
+    """actuals=[100, 100], errors=[+10, -10] → MAE=10, mean_actual=100, mae_pct=10.0."""
+
+    def test_mae_pct(self):
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": 110.0},
+            {"startTime": "2026-01-15 00:30:00", "forecast_mw": 90.0},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 100.0},
+            {"startTime": "2026-01-15 00:30:00", "generation_mw": 100.0},
+        ])
+        m = decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+        assert m.mae_pct == pytest.approx(10.0)
+
+
+# ---------------------------------------------------------------------------
+# 8. Empty / edge cases
+# ---------------------------------------------------------------------------
+
+class TestEdgeCases:
+    """All missing forecasts → n_matched=0, all metrics NaN."""
+
+    def test_all_missing_returns_nan_metrics(self):
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": None, "missing_forecast": True},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 100.0},
+        ])
+        m = decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+        assert m.n_matched == 0
+        assert m.n_excluded == 1
+        assert math.isnan(m.mae)
+        assert math.isnan(m.rmse)
+
+    def test_horizon_negative_excluded(self):
+        """Rows with horizon < 0 must not appear in any bucket."""
+        fc = _make_forecasts([{
+            "startTime": "2026-01-15 00:00:00",
+            "publishTime": "2026-01-16 00:00:00",   # publishTime > startTime → horizon < 0
+            "generation_mw": 100.0,
+        }])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 90.0},
+            {"startTime": "2026-01-15 00:30:00", "generation_mw": 90.0},
+        ])
+        result = horizon_accuracy(fc, act, date(2026, 1, 15), date(2026, 1, 15))
+        total_matched = sum(ms.n_matched for ms in result.values())
+        assert total_matched == 0
+
+    def test_by_date_returns_date_keyed_dict(self):
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": 110.0},
+            {"startTime": "2026-01-16 00:00:00", "forecast_mw": 90.0},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 100.0},
+            {"startTime": "2026-01-16 00:00:00", "generation_mw": 100.0},
+        ])
+        result = decision_time_by_date(sel, act, date(2026, 1, 15), date(2026, 1, 16))
+        assert date(2026, 1, 15) in result
+        assert date(2026, 1, 16) in result
+        assert result[date(2026, 1, 15)].bias == pytest.approx(10.0)
+        assert result[date(2026, 1, 16)].bias == pytest.approx(-10.0)
+
+    def test_by_hour_returns_all_24_hours(self):
+        sel = _make_selection([
+            {"startTime": "2026-01-15 00:00:00", "forecast_mw": 110.0},
+        ])
+        act = _make_actuals([
+            {"startTime": "2026-01-15 00:00:00", "generation_mw": 100.0},
+        ])
+        result = decision_time_by_hour(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+        assert set(result.keys()) == set(range(24))
