@@ -4,10 +4,27 @@ Keep this module thin: wire up middleware, routers, and startup events here,
 but put all business logic in dedicated modules (config, routers, services).
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import health
+from app.data_cache import startup
+from app.routers import accuracy, config, decision, health
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Load the compressed CSV snapshots into module-level memory at startup.
+
+    On Vercel, this runs during the cold start.  Warm invocations skip it
+    entirely because the in-memory DataFrames persist across requests within
+    the same function instance.
+    """
+    startup()
+    yield
+
 
 app = FastAPI(
     title="Wind Forecast Portal API",
@@ -20,6 +37,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 # Allow the Vite dev server (any port) and the Vercel deployment to call the
@@ -34,3 +52,6 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api")
+app.include_router(config.router, prefix="/api")
+app.include_router(decision.router, prefix="/api")
+app.include_router(accuracy.router, prefix="/api")
