@@ -13,6 +13,11 @@ import react from '@vitejs/plugin-react'
  */
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // Recharts + React Router push the bundle just over 500 kB; raise the
+    // warning threshold so the build output stays clean.
+    chunkSizeWarningLimit: 700,
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,
