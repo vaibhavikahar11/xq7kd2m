@@ -301,6 +301,24 @@ class TestHorizonBuckets:
         result = horizon_accuracy(fc, act, date(2026, 1, 15), date(2026, 1, 15))
         assert set(result.keys()) == set(BUCKET_LABELS)
 
+    def test_half_hour_30_horizon_regression(self):
+        """Regression: a :30 row with true horizon exactly 12.0h must be in 12-24h.
+
+        If the hourly forecast's :00 horizon is 11.5h, the :30 expansion adds
+        0.5h → true horizon is exactly 12.0h.  Before the fix, horizon_accuracy
+        used the :00 horizon (11.5h) for both rows, incorrectly placing the :30
+        row in the 6-12h bucket.
+        """
+        # Forecast with :00 horizon = 11.5h
+        fc = self._horizon_forecast(11.5)
+        act = self._single_actual()
+        result = horizon_accuracy(fc, act, date(2026, 1, 15), date(2026, 1, 15))
+
+        # :00 row (horizon 11.5h) → 6-12h  (1 match)
+        # :30 row (horizon 12.0h) → 12-24h (1 match)
+        assert result["6-12h"].n_matched == 1, "the :00 row should land in 6-12h"
+        assert result["12-24h"].n_matched == 1, "the :30 row should land in 12-24h"
+
 
 # ---------------------------------------------------------------------------
 # 7. MAE as percentage of mean actual

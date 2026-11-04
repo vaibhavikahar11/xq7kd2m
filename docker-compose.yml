@@ -1,15 +1,16 @@
-version: "3.9"
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Wind Forecast Portal – local development stack
+# Wind Forecast Portal — local development / demo stack
 #
 # Usage:
 #   docker compose up --build          # start both services
 #   docker compose up --build backend  # backend only
 #
-# The Vite dev server proxies /api/* to the FastAPI container via the
-# VITE_PROXY_TARGET environment variable, so hot-reload works for both
-# the frontend and the backend.
+# Access:
+#   http://localhost:3000              # Frontend (nginx → SPA + /api proxy)
+#   http://localhost:8000/api/health   # Backend direct (for debugging)
+#
+# nginx proxies /api/* to http://backend:8000 over the Docker network.
+# No .env file or secrets are required.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -19,11 +20,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    volumes:
-      # Mount source for --reload to pick up changes without rebuilding
-      - ./backend:/app
-      # Mount pre-fetched data snapshots (populated by scripts/fetch_data.py)
-      - ./backend/data:/app/data
     environment:
       PYTHONUNBUFFERED: "1"
     healthcheck:
@@ -34,18 +30,11 @@ services:
       start_period: 15s
 
   frontend:
-    image: node:20-alpine
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
-      # Anonymous volume so container node_modules don't collide with host
-      - /app/node_modules
-    command: sh -c "npm install && npm run dev"
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "5173:5173"
-    environment:
-      # Forward /api calls to the backend service by its Docker network name
-      VITE_PROXY_TARGET: "http://backend:8000"
+      - "3000:80"
     depends_on:
       backend:
         condition: service_healthy
