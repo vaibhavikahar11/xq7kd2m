@@ -80,7 +80,7 @@ export default function HealthPage() {
           </dl>
 
           <p className="text-slate-500 text-xs mt-5">
-            This page is a wiring check. Decision View and Accuracy View will be added in Phase 3.
+            Data source: Elexon BMRS (WINDFOR + FUELHH).
           </p>
         </div>
       )}

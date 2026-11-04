@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from app.config import settings
 from app.selection import load_actuals, load_forecasts, select_january_forecasts
 
 # Per-cutoff-hour selection cache: the UI exposes a what-if selector, so
@@ -60,4 +61,4 @@ def startup() -> None:
     """
     load_forecasts()
     load_actuals()
-    get_selection(9)  # pre-warm the default cutoff
+    get_selection(settings.DECISION_CUTOFF_HOUR)  # pre-warm the default cutoff

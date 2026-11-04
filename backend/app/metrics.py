@@ -151,13 +151,6 @@ def _compute_metrics(errors: np.ndarray, actuals: np.ndarray, n_excluded: int) -
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _utc(dt: pd.Timestamp) -> pd.Timestamp:
-    """Ensure a Timestamp is timezone-aware UTC."""
-    if dt.tzinfo is None:
-        return dt.tz_localize("UTC")
-    return dt.tz_convert("UTC")
-
-
 def _date_bounds(start_date: date, end_date: date) -> tuple[pd.Timestamp, pd.Timestamp]:
     """
     Return UTC-aware Timestamps for [midnight start_date, midnight after end_date].
@@ -363,11 +356,14 @@ def horizon_accuracy(
     # Exclude negative horizons
     fc = fc[fc["horizon_h"] >= 0].copy()
 
-    # Expand each hourly forecast to :00 and :30 half-hourly keys
-    # The :00 key is the forecast's startTime; :30 key is startTime + 30 min
+    # Expand each hourly forecast to :00 and :30 half-hourly keys.
+    # The :00 key is the forecast's startTime; :30 key is startTime + 30 min.
+    # The :30 row's actual delivery is 30 min further into the future, so its
+    # true horizon is 0.5 h larger than the :00 row's horizon.
     rows_00 = fc.copy()
     rows_30 = fc.copy()
     rows_30["startTime"] = rows_30["startTime"] + pd.Timedelta(minutes=30)
+    rows_30["horizon_h"] = rows_30["horizon_h"] + 0.5
 
     expanded = pd.concat([rows_00, rows_30], ignore_index=True)
 
