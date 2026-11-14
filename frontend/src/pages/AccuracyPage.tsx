@@ -176,7 +176,7 @@ function ByHourTab({ cutoffHour }: { cutoffHour: number }) {
           <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} axisLine={false} unit=" MW" width={72} />
           <Tooltip
             contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}
-            formatter={(v: number | null) => v != null ? [`${v.toLocaleString('en-GB', { maximumFractionDigits: 0 })} MW`] : ['—']}
+            formatter={(value) => { const n = Number(value); return [Number.isFinite(n) ? `${n.toLocaleString('en-GB', { maximumFractionDigits: 0 })} MW` : '—'] }}
           />
           <Bar dataKey="mae" name="MAE" fill="#60a5fa" radius={[3, 3, 0, 0]} />
           <Bar dataKey="bias" name="Bias" fill="#fbbf24" radius={[3, 3, 0, 0]} />
@@ -231,7 +231,7 @@ function ByDateTab({ cutoffHour }: { cutoffHour: number }) {
           <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} axisLine={false} unit=" MW" width={72} />
           <Tooltip
             contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}
-            formatter={(v: number | null) => v != null ? [`${v.toLocaleString('en-GB', { maximumFractionDigits: 0 })} MW`] : ['—']}
+            formatter={(value) => { const n = Number(value); return [Number.isFinite(n) ? `${n.toLocaleString('en-GB', { maximumFractionDigits: 0 })} MW` : '—'] }}
           />
           <Line
             type="monotone"
@@ -320,7 +320,7 @@ function ByHorizonTab() {
           <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickLine={false} axisLine={false} unit=" MW" width={72} />
           <Tooltip
             contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}
-            formatter={(v: number | null) => v != null ? [`${v.toLocaleString('en-GB', { maximumFractionDigits: 0 })} MW`] : ['—']}
+            formatter={(value) => { const n = Number(value); return [Number.isFinite(n) ? `${n.toLocaleString('en-GB', { maximumFractionDigits: 0 })} MW` : '—'] }}
           />
           <Bar dataKey="mae" name="MAE" fill="#818cf8" radius={[3, 3, 0, 0]} />
           <Bar dataKey="bias" name="Bias" fill="#fbbf24" radius={[3, 3, 0, 0]} />
