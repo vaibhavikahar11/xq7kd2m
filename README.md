@@ -1,4 +1,4 @@
-# Gridbricks — Wind Forecast Portal
+# xq7kd2m — Wind Forecast Portal
 
 A web application for a UK energy utility's day-ahead power buying team.
 It shows which WINDFOR forecast was available at the team's decision cutoff
@@ -15,7 +15,17 @@ date, and horizon dimensions — all from publicly available Elexon BMRS data.
 
 ## Screenshots
 
-_Coming soon — placeholder for Decision and Accuracy page screenshots._
+### Decision view — day-ahead forecast vs actuals
+![Decision view](images/decision-view.png)
+
+### Accuracy summary — overall metrics and suggested buffer
+![Accuracy summary](images/accuracy-summary.png)
+
+### Accuracy by horizon — MAE by forecast lead-time bucket
+![Accuracy by horizon](images/accuracy-by-horizon.png)
+
+### Accuracy by hour — MAE by hour of day
+![Accuracy by hour](images/accuracy-by-hour.png)
 
 ---
 
