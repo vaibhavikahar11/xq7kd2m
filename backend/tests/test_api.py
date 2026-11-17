@@ -229,10 +229,37 @@ class TestAccuracySummary:
         assert data["suggested_buffer_mw"] is not None
         assert data["suggested_buffer_mw"] >= 0
 
+    def test_suggested_buffer_uses_over_forecast_tail(self, client: TestClient) -> None:
+        """Buffer must equal signed_p95 (over-forecast tail), not -signed_p5."""
+        data = self._get(client)
+        p95 = data["metrics"]["signed_p95"]
+        assert p95 is not None
+        expected = max(0.0, p95)
+        assert data["suggested_buffer_mw"] == pytest.approx(expected, rel=1e-6)
+
     def test_suggested_buffer_explanation_present(self, client: TestClient) -> None:
         data = self._get(client)
         assert isinstance(data["suggested_buffer_explanation"], str)
-        assert len(data["suggested_buffer_explanation"]) > 10
+        assert "over-forecast" in data["suggested_buffer_explanation"]
+
+    def test_surplus_risk_mw_present(self, client: TestClient) -> None:
+        data = self._get(client)
+        assert "surplus_risk_mw" in data
+        assert data["surplus_risk_mw"] is not None
+        assert data["surplus_risk_mw"] >= 0
+
+    def test_surplus_risk_uses_under_forecast_tail(self, client: TestClient) -> None:
+        """Surplus risk must equal -signed_p5 (under-forecast tail)."""
+        data = self._get(client)
+        p5 = data["metrics"]["signed_p5"]
+        assert p5 is not None
+        expected = max(0.0, -p5)
+        assert data["surplus_risk_mw"] == pytest.approx(expected, rel=1e-6)
+
+    def test_surplus_risk_explanation_present(self, client: TestClient) -> None:
+        data = self._get(client)
+        assert isinstance(data["surplus_risk_explanation"], str)
+        assert len(data["surplus_risk_explanation"]) > 10
 
     def test_cutoff_hour_reflected_in_response(self, client: TestClient) -> None:
         data = self._get(client, cutoff_hour=6)

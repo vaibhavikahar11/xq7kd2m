@@ -174,6 +174,8 @@ No API key required. Outputs:
 | **Forecast selection** | Latest `publishTime ≤ cutoff` per `startTime`. Forecasts published after the cutoff are excluded — no look-ahead bias. |
 | **Half-hour pairing** | WINDFOR is hourly; each hourly forecast is applied to **both** the `:00` and `:30` half-hours without interpolation. |
 | **Error sign convention** | `error = forecast − actual`. Positive = over-forecast. |
+| **Reserve buffer** | `suggested_buffer_mw` = `max(0, signed_p95)` — the 95th percentile of over-forecast errors. Over-forecast means forecast > actual: the buyer expected more wind, bought less conventional power, and is **short**. |
+| **Surplus risk** | `surplus_risk_mw` = `max(0, −signed_p5)` — the 95th percentile of under-forecast magnitude. Actual > forecast: the buyer has more wind than planned and may need to spill or sell. |
 | **No MAPE** | Actuals can be near zero, making MAPE undefined or misleading. MAE % of mean actual is used instead. |
 | **Missing data** | Flagged explicitly (`missing_forecast = true`, `null` values). Never silently filled or imputed. Chart gaps are visible; tables show "No forecast available". |
 | **January timezone** | January 2026 is entirely in GMT, so UTC == Europe/London local time. No DST edge cases. |
@@ -233,13 +235,16 @@ GET /api/decision?date=2026-01-15&cutoff_hour=9
 
 ### `GET /api/accuracy/summary`
 
-Overall accuracy metrics for a date range with a suggested reserve buffer.
+Overall accuracy metrics for a date range with a suggested reserve buffer and surplus risk.
 
 | Param | Required | Default | Description |
 |---|---|---|---|
 | `start` | ✅ | — | Start date `YYYY-MM-DD` |
 | `end` | ✅ | — | End date `YYYY-MM-DD` |
 | `cutoff_hour` | — | `9` | Decision cutoff hour 0–23 |
+
+Returns `metrics` (MetricSet), `suggested_buffer_mw` (P95 of over-forecast error),
+`surplus_risk_mw` (P95 of under-forecast magnitude), and explanation strings for both.
 
 ```
 GET /api/accuracy/summary?start=2026-01-01&end=2026-01-31&cutoff_hour=9
@@ -279,14 +284,14 @@ GET /api/accuracy/by-horizon?start=2026-01-01&end=2026-01-31
 
 ## Testing
 
-**103 tests** across 4 test files:
+**111 tests** across 4 test files:
 
 | File | Count | Scope |
 |---|---|---|
 | `test_health.py` | 9 | Health endpoint |
 | `test_selection.py` | 19 | Cutoff logic, half-hour pairing, look-ahead bias |
-| `test_metrics.py` | 29 | MAE, RMSE, bias, percentiles, horizon buckets, edge cases |
-| `test_api.py` | 46 | All API endpoints, validation, response shapes |
+| `test_metrics.py` | 33 | MAE, RMSE, bias, percentiles, horizon buckets, buffer tail |
+| `test_api.py` | 50 | All API endpoints, validation, response shapes, buffer/surplus |
 
 ```bash
 # Run all tests

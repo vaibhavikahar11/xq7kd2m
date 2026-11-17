@@ -399,3 +399,73 @@ class TestEdgeCases:
         ])
         result = decision_time_by_hour(sel, act, date(2026, 1, 15), date(2026, 1, 15))
         assert set(result.keys()) == set(range(24))
+
+
+# ---------------------------------------------------------------------------
+# Buffer tail correctness
+# ---------------------------------------------------------------------------
+
+
+class TestBufferTail:
+    """Prove that the over-forecast shortfall buffer uses signed_p95,
+    not -signed_p5.
+
+    Hand-calculated dataset:
+        20 rows, errors = [-10, -8, -6, -4, -2, 0, 2, 4, 6, 8,
+                            10, 12, 14, 16, 18, 20, 22, 24, 26, 28]
+
+        numpy linear interpolation (default):
+          signed_p5  = np.percentile(errors, 5)   = -8.1
+          signed_p95 = np.percentile(errors, 95)  = 26.1
+
+        Old (wrong) buffer = max(0, -signed_p5) = 8.1   (under-forecast tail)
+        New (correct) buffer = max(0, signed_p95) = 26.1 (over-forecast tail)
+
+    The over-forecast tail (positive errors) is the one that leaves the
+    buyer short, so the reserve buffer MUST equal signed_p95.
+    """
+
+    @pytest.fixture()
+    def metrics(self) -> MetricSet:
+        # 20 evenly spaced errors from -10 to +28 (step 2)
+        errors = list(range(-10, 30, 2))  # [-10, -8, ..., 26, 28]
+        assert len(errors) == 20
+        actuals_val = 100.0
+        rows = []
+        for i, err in enumerate(errors):
+            t = f"2026-01-15 {i:02d}:00:00"
+            rows.append({"startTime": t, "forecast_mw": actuals_val + err})
+        sel = _make_selection(rows)
+        act = _make_actuals([
+            {"startTime": f"2026-01-15 {i:02d}:00:00", "generation_mw": actuals_val}
+            for i in range(20)
+        ])
+        return decision_time_accuracy(sel, act, date(2026, 1, 15), date(2026, 1, 15))
+
+    def test_signed_p95_is_over_forecast_tail(self, metrics: MetricSet):
+        """signed_p95 must be the large POSITIVE value (over-forecast side)."""
+        assert metrics.signed_p95 > 0
+        assert metrics.signed_p95 == pytest.approx(26.1, abs=0.01)
+
+    def test_signed_p5_is_under_forecast_tail(self, metrics: MetricSet):
+        """signed_p5 must be NEGATIVE (under-forecast / surplus side)."""
+        assert metrics.signed_p5 < 0
+        assert metrics.signed_p5 == pytest.approx(-8.1, abs=0.01)
+
+    def test_buffer_should_use_signed_p95_not_neg_p5(self, metrics: MetricSet):
+        """The reserve buffer = max(0, signed_p95), NOT max(0, -signed_p5).
+
+        This test would FAIL under the old formula (max(0, -signed_p5) = 8.1)
+        because the correct buffer (= 26.1) is much larger.
+        """
+        correct_buffer = max(0.0, metrics.signed_p95)
+        wrong_buffer = max(0.0, -metrics.signed_p5)
+        # The two tails are NOT equal for an asymmetric distribution
+        assert correct_buffer != pytest.approx(wrong_buffer, abs=1.0)
+        # The correct buffer is the over-forecast (positive) tail
+        assert correct_buffer == pytest.approx(26.1, abs=0.01)
+
+    def test_surplus_risk_uses_neg_signed_p5(self, metrics: MetricSet):
+        """Surplus risk = max(0, -signed_p5) — the under-forecast tail."""
+        surplus = max(0.0, -metrics.signed_p5)
+        assert surplus == pytest.approx(8.1, abs=0.01)

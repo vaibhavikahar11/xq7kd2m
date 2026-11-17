@@ -80,6 +80,8 @@ export interface AccuracySummaryResponse {
   metrics: MetricSetResponse
   suggested_buffer_mw: number | null
   suggested_buffer_explanation: string
+  surplus_risk_mw: number | null
+  surplus_risk_explanation: string
 }
 
 export interface HourEntry {

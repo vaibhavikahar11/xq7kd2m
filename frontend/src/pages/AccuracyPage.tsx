@@ -113,10 +113,10 @@ function SummaryTab({ cutoffHour }: { cutoffHour: number }) {
 
   return (
     <div className="space-y-6">
-      {/* Suggested buffer */}
+      {/* Suggested reserve buffer (over-forecast / shortfall tail) */}
       <div className="bg-emerald-900/30 border border-emerald-700/50 rounded-xl px-5 py-4">
         <p className="text-xs text-emerald-400 uppercase tracking-wide mb-1">
-          Suggested Reserve Buffer
+          Suggested Reserve Buffer (over-forecast shortfall, P95)
         </p>
         <p className="text-2xl font-bold text-emerald-300">
           {data.suggested_buffer_mw != null
@@ -126,12 +126,25 @@ function SummaryTab({ cutoffHour }: { cutoffHour: number }) {
         <p className="text-xs text-slate-400 mt-2">{data.suggested_buffer_explanation}</p>
       </div>
 
+      {/* Surplus risk (under-forecast / excess-wind tail) */}
+      <div className="bg-blue-900/30 border border-blue-700/50 rounded-xl px-5 py-4">
+        <p className="text-xs text-blue-400 uppercase tracking-wide mb-1">
+          Surplus Risk (wind exceeded forecast, P95)
+        </p>
+        <p className="text-2xl font-bold text-blue-300">
+          {data.surplus_risk_mw != null
+            ? `${data.surplus_risk_mw.toLocaleString('en-GB', { maximumFractionDigits: 0 })} MW`
+            : '—'}
+        </p>
+        <p className="text-xs text-slate-400 mt-2">{data.surplus_risk_explanation}</p>
+      </div>
+
       <MetricGrid ms={data.metrics} />
 
       <p className="text-xs text-slate-500">
         Error convention: error = forecast − actual (positive = over-forecast).
-        Signed P5 = 5th percentile of signed errors; −P5 = 95th percentile of
-        under-forecast magnitude.
+        Reserve buffer = signed P95 (over-forecast tail); surplus risk = −signed P5
+        (under-forecast tail).
       </p>
     </div>
   )

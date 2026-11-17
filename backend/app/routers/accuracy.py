@@ -15,10 +15,15 @@ NaN-to-None conversion:
   JSON null via _ms_to_response() before sending to the client.
 
 suggested_buffer_mw:
-  Defined as max(0, -signed_p5).  signed_p5 is the 5th percentile of signed
-  errors (forecast - actual); -signed_p5 is therefore the 95th percentile of
-  the under-forecast magnitude.  Buyers can use this as a reserve margin that
-  covers 95% of historical shortfalls.
+  Defined as max(0, signed_p95).  signed_p95 is the 95th percentile of signed
+  errors (forecast - actual).  Positive error = over-forecast = buyer is short
+  (expected more wind than materialised).  This reserve covers 95 % of
+  over-forecast shortfall events.
+
+surplus_risk_mw:
+  Defined as max(0, -signed_p5).  -signed_p5 is the 95th percentile of the
+  under-forecast magnitude (actual exceeded forecast).  The buyer had more
+  wind than expected and may need to spill or sell the surplus.
 """
 
 from __future__ import annotations
@@ -145,6 +150,8 @@ class AccuracySummaryResponse(BaseModel):
     metrics: MetricSetResponse
     suggested_buffer_mw: float | None
     suggested_buffer_explanation: str
+    surplus_risk_mw: float | None
+    surplus_risk_explanation: str
 
 
 @router.get(
@@ -163,9 +170,14 @@ def get_accuracy_summary(
     """
     Overall accuracy of the D-1 decision-time forecast over a date range.
 
-    ``suggested_buffer_mw`` is the 95th percentile of under-forecast
-    magnitude (= ``-signed_p5``).  Buyers can hold this amount as a reserve
-    to cover 95% of historical shortfall events.
+    ``suggested_buffer_mw`` is the 95th percentile of over-forecast error
+    (= ``signed_p95``).  Over-forecast means forecast > actual, so the buyer
+    bought less conventional power than needed and is short.  Holding this
+    reserve covers 95 % of historical shortfall events.
+
+    ``surplus_risk_mw`` is the 95th percentile of under-forecast magnitude
+    (= ``-signed_p5``).  Under-forecast means actual > forecast, so the buyer
+    has more wind than planned and may need to spill or sell.
     """
     _validate_cutoff(cutoff_hour)
     start_date, end_date = _validate_range(start, end)
@@ -173,15 +185,27 @@ def get_accuracy_summary(
     ms = decision_time_accuracy(get_selection(cutoff_hour), get_actuals(), start_date, end_date)
     ms_resp = _ms_to_response(ms)
 
-    if ms_resp.signed_p5 is not None:
-        buffer = max(0.0, -ms_resp.signed_p5)
-        explanation = (
-            f"In {start} to {end}, 95% of under-forecast shortfalls were smaller than "
+    # ── Suggested reserve buffer (over-forecast / shortfall tail) ──────────
+    if ms_resp.signed_p95 is not None:
+        buffer = max(0.0, ms_resp.signed_p95)
+        buffer_explanation = (
+            f"In {start} to {end}, 95% of over-forecast shortfalls were smaller than "
             f"{buffer:,.0f} MW; holding this reserve covers those events."
         )
     else:
         buffer = None
-        explanation = "Insufficient matched data to compute a buffer recommendation."
+        buffer_explanation = "Insufficient matched data to compute a buffer recommendation."
+
+    # ── Surplus risk (under-forecast / excess-wind tail) ───────────────────
+    if ms_resp.signed_p5 is not None:
+        surplus = max(0.0, -ms_resp.signed_p5)
+        surplus_explanation = (
+            f"In {start} to {end}, 95% of cases where wind exceeded the forecast "
+            f"had a surplus smaller than {surplus:,.0f} MW."
+        )
+    else:
+        surplus = None
+        surplus_explanation = "Insufficient matched data to compute surplus risk."
 
     return AccuracySummaryResponse(
         start=start,
@@ -189,7 +213,9 @@ def get_accuracy_summary(
         cutoff_hour=cutoff_hour,
         metrics=ms_resp,
         suggested_buffer_mw=buffer,
-        suggested_buffer_explanation=explanation,
+        suggested_buffer_explanation=buffer_explanation,
+        surplus_risk_mw=surplus,
+        surplus_risk_explanation=surplus_explanation,
     )
 
 
